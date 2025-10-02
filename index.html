@@ -1,0 +1,543 @@
+<!--
+Pembuat Teks Izin - Single-file HTML
+======================================================
+Cara pakai & dokumentasi singkat (edit di bagian atas file):
+- Ubah jumlah langkah: ganti nilai `DEFAULT_STEPS` pada bagian JS (di bawah) dan edit array `STEPS`.
+- Ubah warna tema: edit CSS variables pada :root (--bg, --accent, --text, --muted).
+- Tambah/mapping step: edit `STEPS` array dan tambahkan handler di `renderStep()` jika perlu.
+- Tambah template teks: edit `TEMPLATES` object di JS. Ada dua varian contoh: 'formal' & 'santai'.
+- Untuk mengubah animasi atau durasi loading: ganti `ANIM_DURATION` dan `LOADING_MS` di JS.
+
+Spesifikasi yang dipenuhi:
+- Single-file HTML (semua CSS & JS internal)
+- Mobile-first responsive, optimal untuk Android
+- Step-by-step wizard, progress bar & animated loading (300-600ms)
+- Tema putih + aksen merah maskulin (#B71C1C)
+- Mini state manager (state object + reactive render)
+- Web Share API + fallback (copy to clipboard, download .txt)
+- Accessibility: aria-* untuk progress bar & form
+- respects prefers-reduced-motion
+- tombol besar (min-height 48px), touch-action optimized
+
+Note: jangan panggil CDN / font eksternal / gambar eksternal. Semua ikon inline SVG.
+======================================================
+--><!doctype html>
+
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#B71C1C">
+  <title>Pembuat Teks Izin — Single-file</title>
+  <meta name="description" content="Aplikasi pembuat teks izin, mobile-first, single page, offline-friendly.">
+  <style>
+    /* =====================
+       THEME & CSS VARIABLES
+       Ubah variabel di bawah untuk kustomisasi warna/ukuran.
+       ===================== */
+    :root{
+      --bg: #ffffff; /* background */
+      --accent: #B71C1C; /* merah maskulin */
+      --accent-dark: #8f1515;
+      --text: #111111; /* utama */
+      --muted: #6b6b6b; /* teks pembantu */
+      --surface: #f8f8f8; /* card */
+      --radius: 6px; /* tombol / card radius */
+      --gap: 12px; /* spacing baseline */
+      --font-sz-lg: 18px;
+      --font-sz-md: 15px;
+      --font-sz-sm: 13px;
+      --shadow: 0 6px 18px rgba(11,11,11,0.06);
+      --anim: cubic-bezier(.22,.9,.34,1);
+      --max-width: 820px;
+    }/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  :root{ --anim: linear; }
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* Basic reset & mobile-first layout */
+html,body{height:100%;}
+body{
+  margin:0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans";
+  background:var(--bg);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  display:flex;align-items:flex-start;justify-content:center;
+  padding:16px; box-sizing:border-box;
+}
+
+.app{
+  width:100%; max-width:var(--max-width);
+  box-shadow: var(--shadow); border-radius:10px; overflow:hidden;
+  background:linear-gradient(180deg, rgba(255,255,255,1), rgba(255,255,255,0.99));
+  display:flex; flex-direction:column; min-height:560px;
+}
+
+header.app-header{
+  padding:14px 16px; border-bottom:1px solid #eee; display:flex; gap:12px; align-items:center;
+}
+.brand{display:flex; align-items:center; gap:12px;}
+.logo{
+  width:44px;height:44px;display:flex;align-items:center;justify-content:center;
+  background:var(--accent); color:white; font-weight:700; border-radius:8px;
+  box-shadow: 0 4px 10px rgba(183,28,28,0.18);
+}
+.title{font-size:16px;font-weight:700;}
+.subtitle{font-size:12px;color:var(--muted);}
+
+main{padding:16px; flex:1 1 auto; overflow:auto;}
+
+/* Progress container */
+.progress-wrap{padding:8px 0 16px;}
+.progress-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.progress-info{font-size:13px;color:var(--muted)}
+.progress-bar{position:relative;height:12px;background:#eee;border-radius:12px;overflow:hidden}
+.progress-fill{
+  position:absolute;left:0;top:0;bottom:0;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent-dark));
+  transition:width 480ms var(--anim), background 280ms var(--anim);
+}
+.progress-label{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:12px;color:white;font-weight:700;}
+
+/* Card */
+.card{background:var(--surface);padding:14px;border-radius:var(--radius);box-shadow:0 6px 20px rgba(11,11,11,0.04);}
+
+/* Form elements */
+.field{margin-bottom:12px}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+input[type=text], input[type=date], textarea, select{
+  width:100%;padding:12px;border:1px solid #e6e6e6;border-radius:6px;box-sizing:border-box;font-size:var(--font-sz-md);
+  background:white;color:var(--text);
+}
+textarea{min-height:110px;resize:vertical}
+
+/* Buttons (sticky bottom action bar) */
+.actions{
+  position:sticky;bottom:0;display:flex;gap:10px;padding:12px;background:linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,1));backdrop-filter: blur(4px);
+  border-top:1px solid #eee;align-items:center;justify-content:space-between;
+}
+.btn{min-height:48px; padding:12px 14px;border-radius:8px;border:0;font-weight:700;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;justify-content:center}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--accent);color:white;box-shadow:0 6px 18px rgba(183,28,28,0.12)}
+.btn-ghost{background:transparent;border:1px solid #ddd;color:var(--text)}
+.btn-secondary{background:#fff;border:1px solid #eee;color:var(--muted)}
+
+/* Icon sizing */
+.icon{width:18px;height:18px;display:inline-block}
+
+/* Preview area */
+.preview{white-space:pre-wrap;font-size:15px;line-height:1.5;color:var(--text);background:white;padding:12px;border-radius:6px}
+
+/* Small utilities */
+.row{display:flex;gap:10px}
+.flex-1{flex:1}
+.muted{color:var(--muted);font-size:13px}
+
+/* Toast */
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:110px;background:#222;color:white;padding:10px 14px;border-radius:8px;box-shadow:0 12px 30px rgba(0,0,0,0.22);opacity:0;pointer-events:none;transition:opacity 220ms var(--anim)}
+.toast.show{opacity:1;pointer-events:auto}
+
+/* Responsive tweaks */
+@media(min-width:700px){
+  body{padding:28px}
+  .app{border-radius:14px}
+  main{padding:20px}
+}
+
+/* Accessibility helpers */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* Small comment: customize radius/spacing above via variables */
+
+  </style>
+</head>
+<body>
+  <div class="app" role="application" aria-label="Aplikasi Pembuat Teks Izin">
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">IZ</div>
+        <div>
+          <div class="title">Pembuat Teks Izin</div>
+          <div class="subtitle">Step-by-step • Android-first</div>
+        </div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <button id="hint-a2hs" class="btn btn-secondary" style="padding:8px 10px;font-size:13px">Tambahkan ke layar</button>
+      </div>
+    </header><main>
+  <section class="progress-wrap" aria-hidden="false">
+    <div class="progress-head">
+      <div class="progress-info" id="progressInfo">Step 1 dari 4</div>
+      <div class="progress-info" id="percentInfo">0%</div>
+    </div>
+    <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-labelledby="progressInfo">
+      <div class="progress-fill" id="progressFill"></div>
+      <div class="progress-label" id="progressLabel">0%</div>
+    </div>
+  </section>
+
+  <section id="contentArea">
+    <!-- Dynamic content rendered by JS -->
+  </section>
+
+  <div style="height:24px"></div>
+</main>
+
+<div class="actions" role="toolbar" aria-label="Aksi utama">
+  <div style="display:flex;gap:8px;align-items:center">
+    <button id="btnBack" class="btn btn-ghost" aria-label="Kembali">
+      <!-- Back icon -->
+      <svg class="icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Back
+    </button>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button id="btnShare" class="btn btn-secondary" aria-label="Bagikan">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 3v13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 7l4-4 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Share
+    </button>
+    <button id="btnNext" class="btn btn-primary">Next
+      <svg class="icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+</div>
+
+  </div>  <div id="toast" class="toast" role="status" aria-live="polite"></div>  <script>
+    // =====================
+    // Config / Templates
+    // - Ubah DEFAULT_STEPS untuk men-set default jumlah langkah
+    // - Edit STEPS array untuk mengubah label tiap langkah
+    // - TEMPLATES object berisi template teks untuk tiap "tone"
+    // =====================
+
+    const DEFAULT_STEPS = 4; // ubah jumlah step default di sini
+    const STEPS = [
+      {id: 'data', label: 'Data Pemohon'},
+      {id: 'template', label: 'Pilih Template & Nada'},
+      {id: 'preview', label: 'Preview'},
+      {id: 'export', label: 'Ekspor & Share'}
+    ];
+
+    const TEMPLATES = {
+      formal: `Kepada Yth. {penerima},\n\nDengan hormat,\nSaya yang bertanda tangan di bawah ini:\nNama : {nama}\nJabatan/Identitas : {identitas}\nMengajukan permohonan izin mulai tanggal {startDate}{endSegment}\nAlasan : {alasan}\n\nDemikian permohonan ini saya sampaikan. Atas perhatian dan izin yang diberikan, saya ucapkan terima kasih.\n\nHormat saya,\n{nama}`,
+      santai: `Halo {penerima},\n\nPerkenalkan, saya {nama} ({identitas}). Saya perlu izin dari tanggal {startDate}{endSegment} karena {alasan}.\n\nMohon pengertiannya ya. Terima kasih!\n\nSalam,\n{nama}`
+    };
+
+    // synonym groups: key => [alternatives]
+    const SYNONYMS = {
+      izin: ['izin','perizinan','surat izin'],
+      mohon: ['mohon','harap','harap dapat']
+    };
+
+    // animation/loading durations (ms)
+    const LOADING_MS = 420; // visual loading when moving steps (300-600ms recommended)
+    const ANIM_DURATION = 420;
+
+    // =====================
+    // Minimal state manager
+    // state = reactive object; call render() when changed
+    // =====================
+    const state = {
+      stepIndex: 0,
+      steps: STEPS,
+      form: {
+        nama: '', identitas: '', penerima: '', startDate: '', endDate: '', alasan: '', tone: 'formal'
+      },
+      loading: false
+    };
+
+    // Simple subscriber pattern (one render loop)
+    function setState(patch){
+      Object.assign(state, patch);
+      render();
+    }
+
+    // DOM refs
+    const refs = {};
+
+    // Utilities
+    function el(id){ return document.getElementById(id); }
+    function fmtDate(d){ if(!d) return ''; try{ const dt=new Date(d); return dt.toLocaleDateString(); }catch(e){return d} }
+
+    function showToast(msg, ms=2200){
+      const t = el('toast'); t.textContent = msg; t.classList.add('show');
+      clearTimeout(t._t);
+      t._t = setTimeout(()=> t.classList.remove('show'), ms);
+    }
+
+    function copyToClipboard(text){
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        return navigator.clipboard.writeText(text);
+      } else {
+        // fallback
+        const ta = document.createElement('textarea'); ta.value = text; ta.style.position='fixed'; ta.style.left='-9999px';
+        document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); }catch(e){} ta.remove();
+        return Promise.resolve();
+      }
+    }
+
+    function downloadText(filename, text){
+      const a = document.createElement('a');
+      const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
+      a.href = URL.createObjectURL(blob);
+      a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=> URL.revokeObjectURL(a.href), 5000);
+    }
+
+    // =====================
+    // Core: render function
+    // Renders content area and updates progress bar
+    // =====================
+    function render(){
+      const total = state.steps.length || DEFAULT_STEPS;
+      const idx = Math.max(0, Math.min(state.stepIndex, total-1));
+
+      // update progress text
+      const percent = Math.round(((idx) / (total-1 || 1)) * 100);
+      el('progressInfo').textContent = `Step ${idx+1} dari ${total}`;
+      el('percentInfo').textContent = `${percent}%`;
+      el('progressFill').style.width = `${percent}%`;
+      el('progressLabel').textContent = `${percent}%`;
+      el('progressFill').parentElement.setAttribute('aria-valuenow', percent);
+
+      // render step
+      renderStep(state.steps[idx]);
+
+      // buttons visibility
+      el('btnBack').disabled = idx===0;
+      el('btnNext').textContent = (idx===total-1) ? 'Finish' : 'Next';
+      // reattach icons to next btn (since we changed textContent)
+      if(idx===total-1){ el('btnNext').classList.remove('btn-primary'); el('btnNext').classList.add('btn-ghost'); }
+      else { el('btnNext').classList.remove('btn-ghost'); el('btnNext').classList.add('btn-primary'); }
+    }
+
+    // Render per-step
+    function renderStep(step){
+      const area = el('contentArea');
+      // basic templates for each step id
+      if(step.id === 'data'){
+        area.innerHTML = `
+          <div class="card">
+            <div class="muted" style="margin-bottom:12px">Isi data pemohon</div>
+            <div class="field"><label for="nama">Nama lengkap</label><input id="nama" type="text" placeholder="Nama lengkap" value="${escapeHtml(state.form.nama)}" /></div>
+            <div class="field"><label for="identitas">Identitas / Jabatan</label><input id="identitas" type="text" placeholder="Jabatan / NIK / Identitas" value="${escapeHtml(state.form.identitas)}" /></div>
+            <div class="field"><label for="penerima">Penerima / Instansi</label><input id="penerima" type="text" placeholder="Contoh: Kepala Sekolah / HRD" value="${escapeHtml(state.form.penerima)}" /></div>
+            <div class="row">
+              <div class="field flex-1"><label for="startDate">Tanggal mulai</label><input id="startDate" type="date" value="${escapeHtml(state.form.startDate)}" /></div>
+              <div class="field flex-1"><label for="endDate">Tanggal selesai (opsional)</label><input id="endDate" type="date" value="${escapeHtml(state.form.endDate)}" /></div>
+            </div>
+            <div class="field"><label for="alasan">Alasan</label><textarea id="alasan" placeholder="Jelaskan alasan singkat...">${escapeHtml(state.form.alasan)}</textarea></div></div>
+    `;
+
+    // attach input handlers
+    ['nama','identitas','penerima','startDate','endDate','alasan'].forEach(id=>{
+      const elInput = document.getElementById(id);
+      elInput.addEventListener('input', (e)=>{
+        state.form[id] = e.target.value;
+      });
+    });
+
+  } else if(step.id === 'template'){
+    area.innerHTML = `
+      <div class="card">
+        <div class="muted" style="margin-bottom:12px">Pilih nada & template</div>
+        <div class="field"><label for="tone">Nada pesan</label>
+          <select id="tone">
+            <option value="formal" ${state.form.tone==='formal'?'selected':''}>Formal</option>
+            <option value="santai" ${state.form.tone==='santai'?'selected':''}>Santai</option>
+          </select>
+        </div>
+        <div class="field"><label>Pratinjau komponen</label>
+          <div class="preview">Contoh template akan diaplikasikan pada langkah preview.</div>
+        </div>
+        <div class="field muted">Tip: gunakan nada formal untuk surat resmi, atau santai untuk komunikasi internal.</div>
+      </div>
+    `;
+    document.getElementById('tone').addEventListener('change', (e)=>{ state.form.tone = e.target.value; });
+
+  } else if(step.id === 'preview'){
+    const text = buildText();
+    area.innerHTML = `
+      <div class="card">
+        <div class="muted" style="margin-bottom:12px">Preview (Anda bisa edit kata atau pilih sinonim)</div>
+
+        <div id="previewText" class="preview" contenteditable="true" aria-label="Preview teks izin">${escapeHtml(text)}</div>
+
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button id="btnSyn" class="btn btn-secondary">Tukar sinonim</button>
+          <button id="btnPrint" class="btn btn-secondary">Print / PDF</button>
+          <button id="btnDownload" class="btn btn-secondary">Download .txt</button>
+        </div>
+
+      </div>
+    `;
+    // allow inline editing to update state
+    const p = document.getElementById('previewText');
+    p.addEventListener('input', ()=>{ state._lastPreview = p.textContent; });
+    document.getElementById('btnSyn').addEventListener('click', ()=>{
+      // quick synonym swap: replace some words with synonyms randomly
+      let s = p.textContent;
+      Object.keys(SYNONYMS).forEach(k=>{
+        const group = SYNONYMS[k];
+        const pick = group[Math.floor(Math.random()*group.length)];
+        const re = new RegExp('\\b'+k+'\\b','gi');
+        s = s.replace(re, pick);
+      });
+      p.textContent = s; showToast('Sinonim diterapkan');
+    });
+    document.getElementById('btnPrint').addEventListener('click', ()=>{ window.print(); });
+    document.getElementById('btnDownload').addEventListener('click', ()=>{ downloadText('teks_izin.txt', p.textContent); });
+
+  } else if(step.id === 'export'){
+    const text = state._lastPreview || buildText();
+    area.innerHTML = `
+      <div class="card">
+        <div class="muted" style="margin-bottom:12px">Ekspor & Share</div>
+        <div class="field"><label>Preview final</label><div class="preview">${escapeHtml(text)}</div></div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button id="btnShareFinal" class="btn btn-primary">Bagikan</button>
+          <button id="btnCopy" class="btn btn-ghost">Copy</button>
+          <button id="btnDL" class="btn btn-secondary">Download .txt</button>
+        </div>
+      </div>
+    `;
+    document.getElementById('btnShareFinal').addEventListener('click', shareText);
+    document.getElementById('btnCopy').addEventListener('click', ()=>{ copyToClipboard(text).then(()=>showToast('Disalin ke clipboard')); });
+    document.getElementById('btnDL').addEventListener('click', ()=>{ downloadText('teks_izin.txt', text); });
+  } else {
+    area.innerHTML = `<div class="card">Tidak ada langkah untuk ditampilkan.</div>`;
+  }
+
+}
+
+// Build text using template and state.form
+function buildText(){
+  const f = state.form;
+  const t = TEMPLATES[f.tone] || TEMPLATES.formal;
+  const endSegment = f.endDate ? ` sampai ${fmtDate(f.endDate)}` : '';
+  const data = {
+    nama: f.nama || '[nama]',
+    identitas: f.identitas || '[identitas]',
+    penerima: f.penerima || '[penerima]',
+    startDate: f.startDate ? fmtDate(f.startDate) : '[tanggal]',
+    endSegment: endSegment,
+    alasan: f.alasan || '[alasan]'
+  };
+  return t.replace(/\{(\w+)\}/g, (_,k)=> data[k] || '');
+}
+
+// Navigation: next & prev with validation + loading animation
+async function next(){
+  // light validation for data step
+  const idx = state.stepIndex; const step = state.steps[idx];
+  if(step.id === 'data'){
+    // require minimal fields
+    if(!state.form.nama || !state.form.penerima || !state.form.startDate){
+      showToast('Mohon isi Nama, Penerima, dan Tanggal mulai.');
+      return;
+    }
+  }
+
+  // if last step, maybe finalize
+  if(idx >= state.steps.length -1){
+    // show share/export (same as pressing Share)
+    showToast('Selesai — buka langkah Ekspor untuk membagikan');
+    return;
+  }
+
+  // simulate loading animation (progress bar slight move)
+  await simulateLoading(()=>{
+    setState({stepIndex: idx+1});
+  });
+}
+async function prev(){
+  const idx = state.stepIndex;
+  if(idx===0) return;
+  await simulateLoading(()=>{
+    setState({stepIndex: idx-1});
+  });
+}
+
+// simulateLoading: show brief loading ring by animating fill to +7% then to target in LOADING_MS
+function simulateLoading(callback){
+  return new Promise((res)=>{
+    const fill = el('progressFill');
+    const origWidth = parseFloat(getComputedStyle(fill).width) || 0;
+    // show micro animation overlay: temporarily add a stripe
+    state.loading = true; // can be used if needed
+    // slight visual: add a quick pulse via transform
+    fill.style.transition='width 180ms var(--anim)';
+    // call callback after small delay to update stepIndex (so render will set percent)
+    setTimeout(()=>{
+      callback();
+      setTimeout(()=>{ state.loading=false; fill.style.transition = `width ${ANIM_DURATION}ms var(--anim)`; res(); }, LOADING_MS);
+    }, 120);
+  });
+}
+
+// Share logic using Web Share API with fallback
+function shareText(){
+  const text = state._lastPreview || buildText();
+  if(navigator.share){
+    navigator.share({ title: 'Teks Izin', text }).then(()=>{
+      showToast('Berhasil dibagikan');
+    }).catch((err)=>{ showToast('Gagal membuka dialog share'); console.warn(err);} );
+  } else {
+    // fallback: copy to clipboard
+    copyToClipboard(text).then(()=> showToast('Teks disalin ke clipboard (fallback)'));
+  }
+}
+
+// escape HTML helper
+function escapeHtml(s){
+  if(!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Init: wire buttons & initial render
+function init(){
+  refs.btnNext = el('btnNext'); refs.btnBack = el('btnBack'); refs.btnShare = el('btnShare');
+  refs.hintA2HS = el('hint-a2hs');
+
+  refs.btnNext.addEventListener('click', ()=> next());
+  refs.btnBack.addEventListener('click', ()=> prev());
+  refs.btnShare.addEventListener('click', ()=>{
+    // quick open share from any step
+    const text = state._lastPreview || buildText();
+    if(navigator.share){
+      navigator.share({title: 'Teks Izin', text}).then(()=>showToast('Berhasil dibagikan')).catch(()=>showToast('Dialog share dibatalkan'));
+    } else { copyToClipboard(text).then(()=>showToast('Disalin ke clipboard (fallback)')) }
+  });
+
+  // hint for A2HS (Add to Home Screen) — no manifest used; just a hint CTA
+  refs.hintA2HS.addEventListener('click', ()=>{
+    showToast('Untuk menambahkan, buka menu browser → Tambahkan ke layar utama');
+  });
+
+  // initial render
+  render();
+
+  // prevent accidental double-tap zoom on Android; ensure touch-action
+  document.body.style.touchAction = 'manipulation';
+
+  // keyboard UX: submit on enter if not on textarea
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter' && e.target && e.target.tagName !== 'TEXTAREA'){
+      e.preventDefault(); next();
+    }
+  });
+}
+
+// On load
+window.addEventListener('DOMContentLoaded', init);
+
+// Expose some functions for easy tinkering in console
+window.app = {
+  state, setState, next, prev, buildText, TEMPLATES
+};
+
+  </script>
+</body>
+</html>
